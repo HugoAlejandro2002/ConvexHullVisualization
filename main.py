@@ -1,4 +1,3 @@
-import math
 import arcade
 from game_objects import Point
 
@@ -13,95 +12,94 @@ class App(arcade.Window):
         arcade.set_background_color(arcade.color.BLACK)
         self.sprites = arcade.SpriteList()
         self.hull_points = []
-        self.current_step = 0  # Para controlar qué paso del algoritmo se muestra
-        self.sorted_points = []
+        self.current_step = 0
         self.current_hull_index = 0
-        self.current_hull_index = 0
-        self.time_counter = 0  # Contador de tiempo para controlar la velocidad de dibujo
-        self.time_interval = 0.5 
-        self.dynamic_mode = False
+        self.time_counter = 0
+        self.time_interval = 0.5
 
     def on_update(self, delta_time: float):
+        self.update_tint()
+        self.update_hull_index(delta_time)
+
+    def update_tint(self):
         for point in self.sprites:
-            point.tint = not point.tint  # Para el tintineo de los puntos
+            point.tint = not point.tint
 
-        self.time_counter += delta_time  # Incrementar el contador de tiempo
-
-        # Incrementar el índice del casco convexo para dibujar la siguiente línea
+    def update_hull_index(self, delta_time):
+        self.time_counter += delta_time
         if self.time_counter >= self.time_interval:
             if self.current_hull_index < len(self.hull_points) - 1:
                 self.current_hull_index += 1
-            self.time_counter = 0 
-            
+            self.time_counter = 0
+
     def on_mouse_press(self, x, y, button, modifiers):
         if button == arcade.MOUSE_BUTTON_LEFT:
-            point = Point(x, y)
-            self.sprites.append(point)
-            self.current_step = 0
-            self.hull_points = []
+            self.add_point(x, y)
         elif button == arcade.MOUSE_BUTTON_RIGHT:
-            for point in self.sprites:
-                if abs(point.center_x - x) < 10 and abs(point.center_y - y) < 10:
-                    point.remove_from_sprite_lists()
-                    self.current_step = 0  
-                    self.hull_points = []
-                    break
-                
-    
+            self.remove_point(x, y)
+
+    def add_point(self, x, y):
+        point = Point(x, y)
+        self.sprites.append(point)
+        self.current_step = 0
+        self.hull_points = []
+
+    def remove_point(self, x, y):
+        for point in self.sprites:
+            if abs(point.center_x - x) < 10 and abs(point.center_y - y) < 10:
+                point.remove_from_sprite_lists()
+                self.current_step = 0
+                self.hull_points = []
+                break
+
     def implement_graham(self):
+        points = [(sprite.center_x, sprite.center_y) for sprite in self.sprites]
+        if len(points) < 3:
+            return
+
         if self.current_step == 0:
-            # Paso 1: Encuentra el punto más bajo y más a la izquierda
-            points = [(sprite.center_x, sprite.center_y) for sprite in self.sprites]
-            if len(points) < 3:
-                return
             self.pivot = min(points, key=lambda p: (p[1], p[0]))
             self.current_step += 1
-
         elif self.current_step == 1:
-            # Paso 2: Ordena los puntos según el ángulo polar respecto al punto pivote
-            points = [(sprite.center_x, sprite.center_y) for sprite in self.sprites]
-            
-            # Ordenar por ángulo y, en caso de empate, por distancia al punto pivote
-            self.sorted_points = sorted(points, key=lambda p: (
-                math.atan2(p[1] - self.pivot[1], p[0] - self.pivot[0]),
-                (p[0] - self.pivot[0]) ** 2 + (p[1] - self.pivot[1]) ** 2
-            ))
-        
+            self.sorted_points = Point.sort_by_angle_and_distance(points, self.pivot)
             self.current_step += 1
-
-
         elif self.current_step == 2:
-            # Paso 3: Implementar el algoritmo de Graham para encontrar la envoltura convexa
-            hull = [self.pivot, self.sorted_points[0], self.sorted_points[1]]
-            for point in self.sorted_points[2:]:
-                while len(hull) > 1 and self.cross_product(hull[-2], hull[-1], point) <= 0:
-                    hull.pop()
-                hull.append(point)
-            self.hull_points = hull
-            self.current_step = 0  
+            self.hull_points = Point.graham_algorithm(points, self.pivot)
             self.current_hull_index = 0
-
             self.current_step = 4
-
-    def cross_product(self, o, a, b):
-        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
 
     def on_key_press(self, key, modifiers):
         if key == arcade.key.SPACE:
             self.implement_graham()
         elif key == arcade.key.R:
-            self.sprites = arcade.SpriteList()
-            self.hull_points = []
-            self.current_step = 0
+            self.reset()
+
+    def reset(self):
+        self.sprites = arcade.SpriteList()
+        self.hull_points = []
+        self.current_step = 0
 
     def on_draw(self):
         arcade.start_render()
+        self.draw_points()
+        self.draw_status_and_instructions()
+        self.draw_hull()
+        
+        if self.current_step >= 1:
+            arcade.draw_circle_outline(self.pivot[0], self.pivot[1], 10, arcade.color.WHITE_SMOKE, 3)
+
+        if self.current_step >= 2:
+            for i, point in enumerate(self.sorted_points):
+                arcade.draw_text(str(i), point[0] + 10, point[1] + 10, arcade.color.WHITE, 12)
+
+
+    def draw_points(self):
         for point in self.sprites:
             point.draw()
-            
+
+    def draw_status_and_instructions(self):
         status_text = ["Añadir Puntos", "Seleccionamiento de Pivote", "Ordenamiento de Puntos", "Dibujando...", "Convex Hull"]
         arcade.draw_text(status_text[self.current_step], 10, HEIGHT - 30, arcade.color.WHITE, 20)
-        
         
         instructions = [
             "Instrucciones:",
@@ -115,16 +113,7 @@ class App(arcade.Window):
             arcade.draw_text(instruction, 10, y_position, arcade.color.WHITE, 16)
             y_position -= 20
 
-        # Resaltar el punto pivote
-        if self.current_step >= 1:
-            arcade.draw_circle_outline(self.pivot[0], self.pivot[1], 10, arcade.color.WHITE_SMOKE, 3)
-
-        # Mostrar los puntos ordenados
-        if self.current_step >= 2:
-            for i, point in enumerate(self.sorted_points):
-                arcade.draw_text(str(i), point[0] + 10, point[1] + 10, arcade.color.WHITE, 12)
-
-            
+    def draw_hull(self):
         if len(self.hull_points) > 1:
             for i in range(min(self.current_hull_index, len(self.hull_points) - 1)):
                 arcade.draw_line(self.hull_points[i][0], self.hull_points[i][1],
@@ -133,8 +122,6 @@ class App(arcade.Window):
             if self.current_hull_index == len(self.hull_points) - 1:
                 arcade.draw_line(self.hull_points[-1][0], self.hull_points[-1][1],
                                  self.hull_points[0][0], self.hull_points[0][1], arcade.color.WHITE, 3)
-
-
 
 if __name__ == "__main__":
     app = App()
